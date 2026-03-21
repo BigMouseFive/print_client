@@ -76,17 +76,41 @@ def get_sumatra():
 
 def crop_pdf_to_size(pdf_bytes: bytes, width_mm: float = 100, height_mm: float = 100) -> bytes:
     """
-    将PDF裁剪为指定尺寸（左上角），支持多页
+    将PDF裁剪为指定尺寸：从左边和上边各裁剪指定毫米数后，获取目标尺寸区域
     """
+    from pypdf import PdfReader, PdfWriter
+
     reader = PdfReader(BytesIO(pdf_bytes))
     writer = PdfWriter()
+
+    # 裁剪偏移量（左10mm，上10mm）
+    crop_left = 10 * mm
+    crop_top = 10 * mm
 
     target_width = width_mm * mm
     target_height = height_mm * mm
 
     for page in reader.pages:
-        # 创建目标尺寸的新页面
-        page.mediabox.upper_left = (target_width, target_height)
+        # 获取原 mediabox
+        mediabox = page.mediabox
+        original_width = mediabox.upper_right[0] - mediabox.lower_left[0]
+        original_height = mediabox.upper_right[1] - mediabox.lower_left[1]
+
+        # 计算裁剪后的新区域
+        # PDF坐标系：左下角为(0,0)
+        # 新区域的左下角：x=crop_left, y=原高度-crop_top-目标高度
+        # 新区域的右上角：x=crop_left+目标宽度, y=原高度-crop_top
+
+        new_lower_left_x = crop_left
+        new_lower_left_y = original_height - crop_top - target_height
+
+        new_upper_right_x = crop_left + target_width
+        new_upper_right_y = original_height - crop_top
+
+        # 设置新的裁剪区域
+        page.mediabox.lower_left = (new_lower_left_x, new_lower_left_y)
+        page.mediabox.upper_right = (new_upper_right_x, new_upper_right_y)
+
         writer.add_page(page)
 
     output = BytesIO()
