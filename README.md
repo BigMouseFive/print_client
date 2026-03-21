@@ -59,8 +59,8 @@ pip install flask reportlab python-barcode[images] Pillow openpyxl
 打开 `windows_print_agent.py`，找到顶部配置区，修改打印机名称：
 
 ```python
-FNSKU_PRINTER = "Gprinter GP-2120TU"   # 改为实际名称
-BOX_PRINTER   = "Gprinter GP-2120TU"   # 如有两台分别填写
+FNSKU_PRINTER = "Gprinter GP-1326D"   # 改为实际名称
+BOX_PRINTER   = "Gprinter GP-1326D"   # 如有两台分别填写
 ```
 
 > 打印机名称可在 Windows「控制面板 → 设备和打印机」中查看，需完全一致。
@@ -78,7 +78,7 @@ python windows_print_agent.py
   佳博打印代理服务
 ====================================================
   管理界面：http://localhost:5050
-  FNSKU 打印机：Gprinter GP-2120TU
+  FNSKU 打印机：Gprinter GP-1326D
   SumatraPDF：已找到
 ====================================================
 ```
@@ -207,7 +207,7 @@ curl http://192.168.1.100:5050/ping
 
 返回：
 ```json
-{"status": "ok", "printer": "Gprinter GP-2120TU", "sumatra": true}
+{"status": "ok", "printer": "Gprinter GP-1326D", "sumatra": true}
 ```
 
 ---

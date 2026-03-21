@@ -40,8 +40,8 @@ app = Flask(__name__)
 # 配置 — 仅需修改这里
 # ═══════════════════════════════════════════════════════
 PORT          = 5050
-FNSKU_PRINTER = "Gprinter GP-2120TU"   # 改为 Windows「设备和打印机」中的实际名称
-BOX_PRINTER   = "Gprinter GP-2120TU"   # 外箱标签打印机（同一台则填一样）
+FNSKU_PRINTER = "Gprinter GP-1326D"   # 改为 Windows「设备和打印机」中的实际名称
+BOX_PRINTER   = "Gprinter GP-1326D"   # 外箱标签打印机（同一台则填一样）
 
 SUMATRA_PATHS = [
     r"C:\Program Files\SumatraPDF\SumatraPDF.exe",
@@ -72,6 +72,7 @@ def send_to_printer(pdf_bytes: bytes, printer_name: str, copies: int = 1):
     if sumatra:
         cmd = [sumatra, "-print-to", printer_name,
                "-print-settings", f"{copies}x,fit", "-silent", tmp.name]
+        add_log("ok", f"打印命令：{' '.join(cmd)}")
         subprocess.run(cmd, check=True, timeout=30)
     else:
         os.startfile(tmp.name, "print")
@@ -83,7 +84,7 @@ def send_to_printer(pdf_bytes: bytes, printer_name: str, copies: int = 1):
 
 
 def generate_fnsku_pdf(fnsku: str, sku: str, msku_shipping: str) -> bytes:
-    W, H = 60 * mm, 40 * mm
+    W, H = 40 * mm, 60 * mm
     buf = BytesIO()
     c = canvas.Canvas(buf, pagesize=(W, H))
     bc_io = BytesIO()
@@ -462,7 +463,7 @@ async function doFnsku(ev){const fnsku=document.getElementById('f-fnsku').value.
 function onPdf(input){if(!input.files.length)return;pdfFile=input.files[0];document.getElementById('box-fname').textContent=pdfFile.name;document.getElementById('box-zone').classList.add('has-file');document.getElementById('box-icon').classList.add('green');document.getElementById('box-icon').innerHTML='<svg viewBox="0 0 24 24" fill="#16a34a"><path d="M5 13l4 4L19 7"/></svg>';document.getElementById('btn-box').disabled=false;document.getElementById('btn-box').textContent='打印外箱标签';}
 async function doBox(ev){if(!pdfFile)return;const btn=ev.target;btn.disabled=true;btn.textContent='发送中…';try{const buf=await pdfFile.arrayBuffer();const res=await fetch(`/print/box?copies=${q2}`,{method:'POST',headers:{'Content-Type':'application/pdf'},body:buf});const data=await res.json();if(data.status==='ok')toast('ok',`外箱标签已打印 ${q2} 张`);else toast('err',data.message||'打印失败');}catch(e){toast('err','无法连接打印服务');}finally{btn.disabled=false;btn.textContent='打印外箱标签';}}
 function loadBatch(input){if(!input.files.length)return;const file=input.files[0];document.getElementById('batch-fname').textContent=file.name;const reader=new FileReader();reader.onload=function(e){let data;if(file.name.toLowerCase().endsWith('.csv')){data=parseCSV(e.target.result);}else{const wb=XLSX.read(e.target.result,{type:'array'});const ws=wb.Sheets[wb.SheetNames[0]];data=XLSX.utils.sheet_to_json(ws,{defval:''});}rows=normalizeRows(data);if(!rows.length){toast('err','未找到有效数据，请检查列名');return;}renderBatch();document.getElementById('batch-content').style.display='block';document.getElementById('batch-zone').classList.add('has-file');toast('ok',`已导入 ${rows.length} 条数据`);};if(file.name.toLowerCase().endsWith('.csv'))reader.readAsText(file,'UTF-8');else reader.readAsArrayBuffer(file);}
-function parseCSV(text){const lines=text.trim().split(/\r?\n/);if(lines.length<2)return[];const headers=lines[0].split(',').map(h=>h.trim().replace(/^"|"$/g,''));return lines.slice(1).map(line=>{const vals=line.split(',').map(v=>v.trim().replace(/^"|"$/g,''));const obj={};headers.forEach((h,i)=>obj[h]=vals[i]||'');return obj;}).filter(r=>Object.values(r).some(v=>v));}
+function parseCSV(text){const lines=text.trim().split(/\\r?\\n/);if(lines.length<2)return[];const headers=lines[0].split(',').map(h=>h.trim().replace(/^"|"$/g,''));return lines.slice(1).map(line=>{const vals=line.split(',').map(v=>v.trim().replace(/^"|"$/g,''));const obj={};headers.forEach((h,i)=>obj[h]=vals[i]||'');return obj;}).filter(r=>Object.values(r).some(v=>v));}
 function normalizeRows(data){const get=(r,names)=>{for(const n of names){const k=Object.keys(r).find(k=>k.toLowerCase().trim()===n);if(k&&r[k]!==undefined)return String(r[k]).trim();}return'';};return data.map((r,i)=>({id:i,fnsku:get(r,['fnsku','fnsku编号','fnsku号']),sku:get(r,['sku','sku编号']),msku_shipping:get(r,['msku_shipping','msku+运输方式','msku','shipping','运输方式']),copies:parseInt(get(r,['copies','份数','数量']))||1,status:'wait',checked:false})).filter(r=>r.fnsku);}
 function sbadge(s){const m={wait:['bw','待打印'],done:['bd','已完成'],fail:['bf','失败'],running:['br','打印中']};const[cls,label]=m[s]||m.wait;return`<span class="badge ${cls}">${label}</span>`;}
 function renderBatch(){const tbody=document.getElementById('batch-body');tbody.innerHTML='';rows.forEach(r=>{const tr=document.createElement('tr');if(r.checked)tr.classList.add('sel');tr.innerHTML=`<td><input type="checkbox" ${r.checked?'checked':''} onchange="toggleRow(${r.id},this)"></td><td style="font-family:'Consolas',monospace;font-size:12px">${r.fnsku}</td><td>${r.sku}</td><td style="font-size:12px;color:var(--muted)">${r.msku_shipping}</td><td><input type="number" class="qty-input" min="1" max="99" value="${r.copies}" onchange="rows[${r.id}].copies=Math.max(1,parseInt(this.value)||1)"></td><td>${sbadge(r.status)}</td>`;tbody.appendChild(tr);});updateSel();}
@@ -474,7 +475,7 @@ function updateSel(){const sel=rows.filter(r=>r.checked).length;document.getElem
 async function doBatch(){const sel=rows.filter(r=>r.checked);if(!sel.length)return;const btn=document.getElementById('btn-batch');btn.disabled=true;const prog=document.getElementById('prog-wrap'),fill=document.getElementById('prog-fill');prog.style.display='block';fill.style.width='0%';for(let i=0;i<sel.length;i++){sel[i].status='running';renderBatch();try{const res=await fetch('/print/fnsku',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fnsku:sel[i].fnsku,sku:sel[i].sku,msku_shipping:sel[i].msku_shipping,copies:sel[i].copies})});const data=await res.json();sel[i].status=data.status==='ok'?'done':'fail';}catch(e){sel[i].status='fail';}fill.style.width=Math.round((i+1)/sel.length*100)+'%';renderBatch();}setTimeout(()=>{prog.style.display='none';fill.style.width='0%';},800);const doneCount=sel.filter(r=>r.status==='done').length;const total=sel.filter(r=>r.status==='done').reduce((a,r)=>a+r.copies,0);toast(doneCount===sel.length?'ok':'err',`批量完成 ${doneCount}/${sel.length} 条，共 ${total} 张`);btn.disabled=false;updateSel();}
 function fetchWithTimeout(url,ms){return new Promise((resolve,reject)=>{const t=setTimeout(()=>reject(new Error('timeout')),ms);fetch(url).then(r=>{clearTimeout(t);resolve(r);}).catch(e=>{clearTimeout(t);reject(e);});});}
 async function checkStatus(){try{const res=await fetchWithTimeout('/ping',3000);await res.json();document.getElementById('sdot').className='dot online';document.getElementById('stxt').textContent='服务在线';}catch(e){document.getElementById('sdot').className='dot offline';document.getElementById('stxt').textContent='服务离线';}}
-async function checkPrinters(){try{const res=await fetch('/printers');const data=await res.json();const lines=['系统中已安装的打印机：\n'];data.installed_printers.forEach(n=>lines.push('  · '+n));lines.push('\n当前配置：');lines.push('  FNSKU_PRINTER = "'+data.config.FNSKU_PRINTER+'"  '+(data.config.FNSKU_PRINTER_found?'✓ 匹配':'✗ 未找到'));lines.push('  BOX_PRINTER   = "'+data.config.BOX_PRINTER+'"  '+(data.config.BOX_PRINTER_found?'✓ 匹配':'✗ 未找到'));if(!data.config.FNSKU_PRINTER_found||!data.config.BOX_PRINTER_found){lines.push('\n请将脚本顶部 FNSKU_PRINTER/BOX_PRINTER 改为上方列表中的准确名称。');}alert(lines.join('\n'));}catch(e){alert('无法获取打印机列表，请确认服务已启动。');}}
+async function checkPrinters(){try{const res=await fetch('/printers');const data=await res.json();const lines=['系统中已安装的打印机：\\n'];data.installed_printers.forEach(n=>lines.push('  · '+n));lines.push('\\n当前配置：');lines.push('  FNSKU_PRINTER = "'+data.config.FNSKU_PRINTER+'"  '+(data.config.FNSKU_PRINTER_found?'✓ 匹配':'✗ 未找到'));lines.push('  BOX_PRINTER   = "'+data.config.BOX_PRINTER+'"  '+(data.config.BOX_PRINTER_found?'✓ 匹配':'✗ 未找到'));if(!data.config.FNSKU_PRINTER_found||!data.config.BOX_PRINTER_found){lines.push('\\n请将脚本顶部 FNSKU_PRINTER/BOX_PRINTER 改为上方列表中的准确名称。');}alert(lines.join('\\n'));}catch(e){alert('无法获取打印机列表，请确认服务已启动。');}}
 checkStatus();setInterval(checkStatus,15000);
 </script>
 </body>
