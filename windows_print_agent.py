@@ -30,8 +30,10 @@ try:
     import barcode
     from barcode.writer import ImageWriter
     from PIL import Image
+    from pypdf import PdfReader, PdfWriter
+    from io import BytesIO
 except ImportError as e:
-    print(f"[错误] 缺少依赖，请运行：\n  pip install flask reportlab python-barcode[images] Pillow openpyxl\n{e}")
+    print(f"[错误] 缺少依赖，请运行：\n  pip install flask reportlab python-barcode[images] Pillow openpyxl pypdf\n{e}")
     sys.exit(1)
 
 app = Flask(__name__)
@@ -64,7 +66,57 @@ def get_sumatra():
     return None
 
 
+def crop_pdf_to_size(pdf_bytes: bytes, width_mm: float = 100, height_mm: float = 100) -> bytes:
+    """
+    将PDF裁剪为指定尺寸（左上角），支持多页
+    """
+    reader = PdfReader(BytesIO(pdf_bytes))
+    writer = PdfWriter()
+
+    target_width = width_mm * mm
+    target_height = height_mm * mm
+
+    for page in reader.pages:
+        # 创建目标尺寸的新页面
+        page.mediabox.upper_left = (target_width, target_height)
+        writer.add_page(page)
+
+    output = BytesIO()
+    writer.write(output)
+    return output.getvalue()
+
+
+def crop_pdf_to_size_if_needed(pdf_bytes: bytes, width_mm: float = 100, height_mm: float = 100) -> bytes:
+    """
+    检测PDF尺寸，如果超过目标尺寸则裁剪，否则返回原PDF
+    """
+    reader = PdfReader(BytesIO(pdf_bytes))
+    if not reader.pages:
+        return pdf_bytes
+
+    # 获取第一页的尺寸（PDF单位是点，1mm ≈ 2.83点）
+    first_page = reader.pages[0]
+    mediabox = first_page.mediabox
+
+    # mediabox: (lower_left_x, lower_left_y, upper_right_x, upper_right_y)
+    pdf_width_pt = mediabox.upper_right[0] - mediabox.lower_left[0]
+    pdf_height_pt = mediabox.upper_right[1] - mediabox.lower_left[1]
+
+    target_width_pt = width_mm * mm
+    target_height_pt = height_mm * mm
+
+    # 如果PDF尺寸小于等于目标尺寸，不需要裁剪
+    if pdf_width_pt <= target_width_pt and pdf_height_pt <= target_height_pt:
+        return pdf_bytes
+
+    add_log("ok", f"PDF裁剪: {pdf_width_pt/mm:.1f}×{pdf_height_pt/mm:.1f}mm → {width_mm}×{height_mm}mm")
+    return crop_pdf_to_size(pdf_bytes, width_mm, height_mm)
+
+
 def send_to_printer(pdf_bytes: bytes, printer_name: str, copies: int = 1):
+    # 自动裁剪PDF到100x100mm（外箱标签尺寸）
+    pdf_bytes = crop_pdf_to_size_if_needed(pdf_bytes, 100, 100)
+
     tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
     tmp.write(pdf_bytes)
     tmp.close()
