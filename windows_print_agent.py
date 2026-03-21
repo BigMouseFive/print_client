@@ -146,9 +146,6 @@ def crop_pdf_to_size_if_needed(pdf_bytes: bytes, width_mm: float = 100, height_m
 
 
 def send_to_printer(pdf_bytes: bytes, printer_name: str, copies: int = 1):
-    # 自动裁剪PDF到100x100mm（外箱标签尺寸）
-    pdf_bytes = crop_pdf_to_size_if_needed(pdf_bytes, 100, 100)
-
     tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
     tmp.write(pdf_bytes)
     tmp.close()
@@ -289,6 +286,8 @@ def api_box():
         if not pdf_bytes:
             return jsonify({"status": "error", "message": "未收到 PDF 数据"}), 400
         copies = int(request.args.get("copies", 1))
+        # 自动裁剪PDF到100x100mm（外箱标签尺寸）
+        pdf_bytes = crop_pdf_to_size_if_needed(pdf_bytes, 100, 100)
         send_to_printer(pdf_bytes, BOX_PRINTER, copies)
         add_log("ok", f"外箱标签 × {copies} 张")
         return jsonify({"status": "ok"})
