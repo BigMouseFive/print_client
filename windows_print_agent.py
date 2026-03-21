@@ -136,6 +136,32 @@ def add_log(level: str, message: str):
 def ping():
     return jsonify({"status": "ok", "printer": FNSKU_PRINTER, "sumatra": bool(get_sumatra())})
 
+
+@app.route("/printers")
+def list_printers():
+    """列出 Windows 上所有已安装的打印机，用于确认打印机名称是否正确"""
+    try:
+        result = subprocess.run(
+            ["powershell", "-Command",
+             "Get-Printer | Select-Object -ExpandProperty Name"],
+            capture_output=True, text=True, timeout=10
+        )
+        names = [n.strip() for n in result.stdout.strip().splitlines() if n.strip()]
+        matched_fnsku = FNSKU_PRINTER in names
+        matched_box   = BOX_PRINTER in names
+        return jsonify({
+            "status": "ok",
+            "installed_printers": names,
+            "config": {
+                "FNSKU_PRINTER": FNSKU_PRINTER,
+                "FNSKU_PRINTER_found": matched_fnsku,
+                "BOX_PRINTER": BOX_PRINTER,
+                "BOX_PRINTER_found": matched_box,
+            }
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 @app.route("/logs")
 def api_logs():
     return jsonify(print_log)
@@ -327,6 +353,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue);cursor:poin
   </nav>
   <div class="sb-foot">
     <div class="status-pill"><span class="dot" id="sdot"></span><span id="stxt" style="font-size:12px">检测中…</span></div>
+    <button onclick="checkPrinters()" style="margin-top:8px;width:100%;height:28px;border:0.5px solid var(--border-md);border-radius:var(--rsm);background:transparent;cursor:pointer;font-size:12px;color:var(--muted);">查询打印机名称</button>
   </div>
 </div>
 <div class="main">
@@ -445,7 +472,9 @@ function clearSel(){rows.forEach(r=>r.checked=false);document.getElementById('ch
 function resetBatch(){rows=[];document.getElementById('batch-content').style.display='none';document.getElementById('batch-fname').textContent='点击选择 Excel / CSV 文件';document.getElementById('batch-input').value='';document.getElementById('batch-zone').classList.remove('has-file');}
 function updateSel(){const sel=rows.filter(r=>r.checked).length;document.getElementById('sel-info').textContent=`已选 ${sel} / ${rows.length} 条`;const btn=document.getElementById('btn-batch');btn.disabled=sel===0;btn.textContent=sel>0?`打印已选 (${sel})`:'打印已选';}
 async function doBatch(){const sel=rows.filter(r=>r.checked);if(!sel.length)return;const btn=document.getElementById('btn-batch');btn.disabled=true;const prog=document.getElementById('prog-wrap'),fill=document.getElementById('prog-fill');prog.style.display='block';fill.style.width='0%';for(let i=0;i<sel.length;i++){sel[i].status='running';renderBatch();try{const res=await fetch('/print/fnsku',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fnsku:sel[i].fnsku,sku:sel[i].sku,msku_shipping:sel[i].msku_shipping,copies:sel[i].copies})});const data=await res.json();sel[i].status=data.status==='ok'?'done':'fail';}catch(e){sel[i].status='fail';}fill.style.width=Math.round((i+1)/sel.length*100)+'%';renderBatch();}setTimeout(()=>{prog.style.display='none';fill.style.width='0%';},800);const doneCount=sel.filter(r=>r.status==='done').length;const total=sel.filter(r=>r.status==='done').reduce((a,r)=>a+r.copies,0);toast(doneCount===sel.length?'ok':'err',`批量完成 ${doneCount}/${sel.length} 条，共 ${total} 张`);btn.disabled=false;updateSel();}
-async function checkStatus(){try{const res=await fetch('/ping',{signal:AbortSignal.timeout(2000)});await res.json();document.getElementById('sdot').className='dot online';document.getElementById('stxt').textContent='打印机在线';}catch(e){document.getElementById('sdot').className='dot offline';document.getElementById('stxt').textContent='服务离线';}}
+function fetchWithTimeout(url,ms){return new Promise((resolve,reject)=>{const t=setTimeout(()=>reject(new Error('timeout')),ms);fetch(url).then(r=>{clearTimeout(t);resolve(r);}).catch(e=>{clearTimeout(t);reject(e);});});}
+async function checkStatus(){try{const res=await fetchWithTimeout('/ping',3000);await res.json();document.getElementById('sdot').className='dot online';document.getElementById('stxt').textContent='服务在线';}catch(e){document.getElementById('sdot').className='dot offline';document.getElementById('stxt').textContent='服务离线';}}
+async function checkPrinters(){try{const res=await fetch('/printers');const data=await res.json();const lines=['系统中已安装的打印机：\n'];data.installed_printers.forEach(n=>lines.push('  · '+n));lines.push('\n当前配置：');lines.push('  FNSKU_PRINTER = "'+data.config.FNSKU_PRINTER+'"  '+(data.config.FNSKU_PRINTER_found?'✓ 匹配':'✗ 未找到'));lines.push('  BOX_PRINTER   = "'+data.config.BOX_PRINTER+'"  '+(data.config.BOX_PRINTER_found?'✓ 匹配':'✗ 未找到'));if(!data.config.FNSKU_PRINTER_found||!data.config.BOX_PRINTER_found){lines.push('\n请将脚本顶部 FNSKU_PRINTER/BOX_PRINTER 改为上方列表中的准确名称。');}alert(lines.join('\n'));}catch(e){alert('无法获取打印机列表，请确认服务已启动。');}}
 checkStatus();setInterval(checkStatus,15000);
 </script>
 </body>
