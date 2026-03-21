@@ -47,7 +47,7 @@ Windows 打印代理服务 :5050
 **安装依赖**
 
 ```bash
-pip install flask reportlab python-barcode[images] Pillow openpyxl
+pip install flask reportlab python-barcode[images] Pillow openpyxl pypdf
 ```
 
 **安装 SumatraPDF（推荐，支持静默打印）**

@@ -84,8 +84,8 @@ def crop_pdf_to_size(pdf_bytes: bytes, width_mm: float = 100, height_mm: float =
     writer = PdfWriter()
 
     # 裁剪偏移量（左10mm，上10mm）
-    crop_left = 10 * mm
-    crop_top = 10 * mm
+    crop_left = 5 * mm
+    crop_top = 5 * mm
 
     target_width = width_mm * mm
     target_height = height_mm * mm
@@ -307,8 +307,6 @@ def api_preview_fnsku():
     data = request.get_json()
     try:
         pdf = generate_fnsku_pdf(data["fnsku"], data["sku"], data["msku_shipping"])
-        # FNSKU是60x40mm，不需要裁剪，但为了统一处理也走裁剪流程
-        pdf = crop_pdf_to_size_if_needed(pdf, 60, 40)
         return jsonify({"status": "ok", "pdf": base64.b64encode(pdf).decode("utf-8")})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
