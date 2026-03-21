@@ -18,7 +18,7 @@
     按 Win+R 输入 shell:startup，把该 bat 文件放入其中。
 """
 
-import os, sys, json, tempfile, threading, subprocess, time
+import os, sys, json, tempfile, threading, subprocess, time, base64
 from datetime import datetime
 from io import BytesIO
 from flask import Flask, request, jsonify, Response
@@ -37,6 +37,14 @@ except ImportError as e:
     sys.exit(1)
 
 app = Flask(__name__)
+
+
+# 提供 JS 文件
+@app.route("/app.js")
+def serve_js():
+    js_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.js")
+    with open(js_path, "r", encoding="utf-8") as f:
+        return Response(f.read(), mimetype="application/javascript")
 
 # ═══════════════════════════════════════════════════════
 # 配置 — 仅需修改这里
@@ -266,6 +274,37 @@ def api_box():
 
 
 # ───────────────────────────────────────────────────────
+# 预览 API
+# ───────────────────────────────────────────────────────
+
+@app.route("/preview/fnsku", methods=["POST"])
+def api_preview_fnsku():
+    """FNSKU 预览 - 返回裁剪后的PDF base64"""
+    data = request.get_json()
+    try:
+        pdf = generate_fnsku_pdf(data["fnsku"], data["sku"], data["msku_shipping"])
+        # FNSKU是60x40mm，不需要裁剪，但为了统一处理也走裁剪流程
+        pdf = crop_pdf_to_size_if_needed(pdf, 60, 40)
+        return jsonify({"status": "ok", "pdf": base64.b64encode(pdf).decode("utf-8")})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/preview/box", methods=["POST"])
+def api_preview_box():
+    """外箱预览 - 返回裁剪后的PDF base64"""
+    try:
+        pdf_bytes = request.data
+        if not pdf_bytes:
+            return jsonify({"status": "error", "message": "未收到 PDF 数据"}), 400
+        # 裁剪到100x100mm
+        pdf = crop_pdf_to_size_if_needed(pdf_bytes, 100, 100)
+        return jsonify({"status": "ok", "pdf": base64.b64encode(pdf).decode("utf-8")})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# ───────────────────────────────────────────────────────
 # Web 管理界面（内嵌 HTML）
 # ───────────────────────────────────────────────────────
 
@@ -421,13 +460,19 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue);cursor:poin
         <div class="field"><label>MSKU + 运输方式</label><input type="text" id="f-msku" placeholder="如 FBA-*KSA9  HAI" oninput="upv()"></div>
       </div>
       <div class="preview" id="prev-box"><span class="preview-hint">填写字段后预览</span></div>
+      <div class="pdf-preview" id="fnsku-pdf-preview" style="display:none">
+        <iframe id="fnsku-pdf-iframe" style="width:100%;height:200px;border:0.5px solid var(--border);border-radius:var(--rsm)"></iframe>
+      </div>
       <div class="copies-bar">
         <label>打印份数</label>
         <button class="qbtn" onclick="adj('q1',-1)">&#8722;</button>
         <span class="qnum" id="q1">1</span>
         <button class="qbtn" onclick="adj('q1',1)">+</button>
       </div>
-      <button class="btn btn-blue btn-full" onclick="doFnsku(event)">打印 FNSKU 标签</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost btn-full" onclick="previewFnsku(event)" id="btn-fnsku-preview">预览效果</button>
+        <button class="btn btn-blue btn-full" onclick="doFnsku(event)">打印 FNSKU 标签</button>
+      </div>
     </div>
   </div>
 
@@ -479,13 +524,19 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue);cursor:poin
         <div class="uz-hint">仅支持 .pdf</div>
       </div>
       <input type="file" id="pdf-input" accept=".pdf" style="display:none" onchange="onPdf(this)">
+      <div class="pdf-preview" id="box-pdf-preview" style="display:none">
+        <iframe id="box-pdf-iframe" style="width:100%;height:200px;border:0.5px solid var(--border);border-radius:var(--rsm)"></iframe>
+      </div>
       <div class="copies-bar">
         <label>打印份数</label>
         <button class="qbtn" onclick="adj('q2',-1)">&#8722;</button>
         <span class="qnum" id="q2">1</span>
         <button class="qbtn" onclick="adj('q2',1)">+</button>
       </div>
-      <button class="btn btn-blue btn-full" id="btn-box" onclick="doBox(event)" disabled>选择文件后打印</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost btn-full" onclick="previewBox(event)" id="btn-box-preview" disabled>预览效果</button>
+        <button class="btn btn-blue btn-full" id="btn-box" onclick="doBox(event)" disabled>打印外箱标签</button>
+      </div>
     </div>
   </div>
 
@@ -503,33 +554,9 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue);cursor:poin
 
 </div>
 </div>
-<script>
-let q1=1,q2=1,rows=[],pdfFile=null;
-function sw(name,el){document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));document.getElementById('panel-'+name).classList.add('active');el.classList.add('active');if(name==='log')loadLog();}
-function adj(id,d){if(id==='q1'){q1=Math.max(1,Math.min(99,q1+d));document.getElementById('q1').textContent=q1;}else{q2=Math.max(1,Math.min(99,q2+d));document.getElementById('q2').textContent=q2;}}
-function upv(){const f=document.getElementById('f-fnsku').value.trim(),s=document.getElementById('f-sku').value.trim(),m=document.getElementById('f-msku').value.trim(),box=document.getElementById('prev-box');if(!f&&!s&&!m){box.innerHTML='<span class="preview-hint">填写字段后预览</span>';return;}box.innerHTML=`<div class="prow"><span class="k">FNSKU</span><span class="v">${f||'—'}</span></div><div class="prow"><span class="k">SKU</span><span class="v">${s||'—'}</span></div><div class="prow"><span class="k">MSKU / 运输</span><span class="v">${m||'—'}</span></div><div class="prow"><span class="k">份数</span><span class="v">${q1}</span></div>`;}
-function toast(type,msg){const el=document.createElement('div');el.className='toast '+type;el.textContent=(type==='ok'?'✓  ':'✕  ')+msg;document.getElementById('toasts').appendChild(el);setTimeout(()=>el.remove(),3500);}
-async function loadLog(){try{const res=await fetch('/logs');const data=await res.json();const area=document.getElementById('log-area');if(!data.length){area.innerHTML='<div style="font-size:13px;color:var(--hint);padding:8px 0">暂无记录</div>';return;}area.innerHTML=data.map(item=>`<div class="log-item"><span class="log-time">${item.time}</span><span class="badge ${item.level==='ok'?'bd':'bf'}">${item.level==='ok'?'成功':'失败'}</span><span class="log-msg">${item.message}</span></div>`).join('');}catch(e){}}
-function clearLogUI(){document.getElementById('log-area').innerHTML='<div style="font-size:13px;color:var(--hint);padding:8px 0">已清空</div>';}
-async function doFnsku(ev){const fnsku=document.getElementById('f-fnsku').value.trim(),sku=document.getElementById('f-sku').value.trim(),msku=document.getElementById('f-msku').value.trim();if(!fnsku||!sku||!msku){toast('err','请填写所有字段');return;}const btn=ev.target;btn.disabled=true;btn.textContent='发送中…';try{const res=await fetch('/print/fnsku',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fnsku,sku,msku_shipping:msku,copies:q1})});const data=await res.json();if(data.status==='ok')toast('ok',`已打印 ${q1} 张 FNSKU 标签`);else toast('err',data.message||'打印失败');}catch(e){toast('err','无法连接打印服务');}finally{btn.disabled=false;btn.textContent='打印 FNSKU 标签';}}
-function onPdf(input){if(!input.files.length)return;pdfFile=input.files[0];document.getElementById('box-fname').textContent=pdfFile.name;document.getElementById('box-zone').classList.add('has-file');document.getElementById('box-icon').classList.add('green');document.getElementById('box-icon').innerHTML='<svg viewBox="0 0 24 24" fill="#16a34a"><path d="M5 13l4 4L19 7"/></svg>';document.getElementById('btn-box').disabled=false;document.getElementById('btn-box').textContent='打印外箱标签';}
-async function doBox(ev){if(!pdfFile)return;const btn=ev.target;btn.disabled=true;btn.textContent='发送中…';try{const buf=await pdfFile.arrayBuffer();const res=await fetch(`/print/box?copies=${q2}`,{method:'POST',headers:{'Content-Type':'application/pdf'},body:buf});const data=await res.json();if(data.status==='ok')toast('ok',`外箱标签已打印 ${q2} 张`);else toast('err',data.message||'打印失败');}catch(e){toast('err','无法连接打印服务');}finally{btn.disabled=false;btn.textContent='打印外箱标签';}}
-function loadBatch(input){if(!input.files.length)return;const file=input.files[0];document.getElementById('batch-fname').textContent=file.name;const reader=new FileReader();reader.onload=function(e){let data;if(file.name.toLowerCase().endsWith('.csv')){data=parseCSV(e.target.result);}else{const wb=XLSX.read(e.target.result,{type:'array'});const ws=wb.Sheets[wb.SheetNames[0]];data=XLSX.utils.sheet_to_json(ws,{defval:''});}rows=normalizeRows(data);if(!rows.length){toast('err','未找到有效数据，请检查列名');return;}renderBatch();document.getElementById('batch-content').style.display='block';document.getElementById('batch-zone').classList.add('has-file');toast('ok',`已导入 ${rows.length} 条数据`);};if(file.name.toLowerCase().endsWith('.csv'))reader.readAsText(file,'UTF-8');else reader.readAsArrayBuffer(file);}
-function parseCSV(text){const lines=text.trim().split(/\\r?\\n/);if(lines.length<2)return[];const headers=lines[0].split(',').map(h=>h.trim().replace(/^"|"$/g,''));return lines.slice(1).map(line=>{const vals=line.split(',').map(v=>v.trim().replace(/^"|"$/g,''));const obj={};headers.forEach((h,i)=>obj[h]=vals[i]||'');return obj;}).filter(r=>Object.values(r).some(v=>v));}
-function normalizeRows(data){const get=(r,names)=>{for(const n of names){const k=Object.keys(r).find(k=>k.toLowerCase().trim()===n);if(k&&r[k]!==undefined)return String(r[k]).trim();}return'';};return data.map((r,i)=>({id:i,fnsku:get(r,['fnsku','fnsku编号','fnsku号']),sku:get(r,['sku','sku编号']),msku_shipping:get(r,['msku_shipping','msku+运输方式','msku','shipping','运输方式']),copies:parseInt(get(r,['copies','份数','数量']))||1,status:'wait',checked:false})).filter(r=>r.fnsku);}
-function sbadge(s){const m={wait:['bw','待打印'],done:['bd','已完成'],fail:['bf','失败'],running:['br','打印中']};const[cls,label]=m[s]||m.wait;return`<span class="badge ${cls}">${label}</span>`;}
-function renderBatch(){const tbody=document.getElementById('batch-body');tbody.innerHTML='';rows.forEach(r=>{const tr=document.createElement('tr');if(r.checked)tr.classList.add('sel');tr.innerHTML=`<td><input type="checkbox" ${r.checked?'checked':''} onchange="toggleRow(${r.id},this)"></td><td style="font-family:'Consolas',monospace;font-size:12px">${r.fnsku}</td><td>${r.sku}</td><td style="font-size:12px;color:var(--muted)">${r.msku_shipping}</td><td><input type="number" class="qty-input" min="1" max="99" value="${r.copies}" onchange="rows[${r.id}].copies=Math.max(1,parseInt(this.value)||1)"></td><td>${sbadge(r.status)}</td>`;tbody.appendChild(tr);});updateSel();}
-function toggleRow(id,cb){rows[id].checked=cb.checked;cb.closest('tr').classList.toggle('sel',cb.checked);updateSel();}
-function selAll(cb){rows.forEach(r=>r.checked=cb.checked);renderBatch();document.getElementById('chk-all').checked=cb.checked;}
-function clearSel(){rows.forEach(r=>r.checked=false);document.getElementById('chk-all').checked=false;renderBatch();}
-function resetBatch(){rows=[];document.getElementById('batch-content').style.display='none';document.getElementById('batch-fname').textContent='点击选择 Excel / CSV 文件';document.getElementById('batch-input').value='';document.getElementById('batch-zone').classList.remove('has-file');}
-function updateSel(){const sel=rows.filter(r=>r.checked).length;document.getElementById('sel-info').textContent=`已选 ${sel} / ${rows.length} 条`;const btn=document.getElementById('btn-batch');btn.disabled=sel===0;btn.textContent=sel>0?`打印已选 (${sel})`:'打印已选';}
-async function doBatch(){const sel=rows.filter(r=>r.checked);if(!sel.length)return;const btn=document.getElementById('btn-batch');btn.disabled=true;const prog=document.getElementById('prog-wrap'),fill=document.getElementById('prog-fill');prog.style.display='block';fill.style.width='0%';for(let i=0;i<sel.length;i++){sel[i].status='running';renderBatch();try{const res=await fetch('/print/fnsku',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fnsku:sel[i].fnsku,sku:sel[i].sku,msku_shipping:sel[i].msku_shipping,copies:sel[i].copies})});const data=await res.json();sel[i].status=data.status==='ok'?'done':'fail';}catch(e){sel[i].status='fail';}fill.style.width=Math.round((i+1)/sel.length*100)+'%';renderBatch();}setTimeout(()=>{prog.style.display='none';fill.style.width='0%';},800);const doneCount=sel.filter(r=>r.status==='done').length;const total=sel.filter(r=>r.status==='done').reduce((a,r)=>a+r.copies,0);toast(doneCount===sel.length?'ok':'err',`批量完成 ${doneCount}/${sel.length} 条，共 ${total} 张`);btn.disabled=false;updateSel();}
-function fetchWithTimeout(url,ms){return new Promise((resolve,reject)=>{const t=setTimeout(()=>reject(new Error('timeout')),ms);fetch(url).then(r=>{clearTimeout(t);resolve(r);}).catch(e=>{clearTimeout(t);reject(e);});});}
-async function checkStatus(){try{const res=await fetchWithTimeout('/ping',3000);await res.json();document.getElementById('sdot').className='dot online';document.getElementById('stxt').textContent='服务在线';}catch(e){document.getElementById('sdot').className='dot offline';document.getElementById('stxt').textContent='服务离线';}}
-async function checkPrinters(){try{const res=await fetch('/printers');const data=await res.json();const lines=['系统中已安装的打印机：\\n'];data.installed_printers.forEach(n=>lines.push('  · '+n));lines.push('\\n当前配置：');lines.push('  FNSKU_PRINTER = "'+data.config.FNSKU_PRINTER+'"  '+(data.config.FNSKU_PRINTER_found?'✓ 匹配':'✗ 未找到'));lines.push('  BOX_PRINTER   = "'+data.config.BOX_PRINTER+'"  '+(data.config.BOX_PRINTER_found?'✓ 匹配':'✗ 未找到'));if(!data.config.FNSKU_PRINTER_found||!data.config.BOX_PRINTER_found){lines.push('\\n请将脚本顶部 FNSKU_PRINTER/BOX_PRINTER 改为上方列表中的准确名称。');}alert(lines.join('\\n'));}catch(e){alert('无法获取打印机列表，请确认服务已启动。');}}
-checkStatus();setInterval(checkStatus,15000);
-</script>
+<script src="/app.js"></script>
+</body>
+</html>"""
 </body>
 </html>"""
 
