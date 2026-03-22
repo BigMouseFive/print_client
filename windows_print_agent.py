@@ -165,7 +165,7 @@ def send_to_printer(pdf_bytes: bytes, printer_name: str, copies: int = 1):
 
 
 def generate_fnsku_pdf(fnsku: str, sku: str, msku_shipping: str) -> bytes:
-    W, H = 40 * mm, 60 * mm
+    W, H = 60 * mm, 90 * mm
     buf = BytesIO()
     c = canvas.Canvas(buf, pagesize=(W, H))
     bc_io = BytesIO()
