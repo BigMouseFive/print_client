@@ -164,15 +164,25 @@ def send_to_printer(pdf_bytes: bytes, printer_name: str, copies: int = 1):
     threading.Thread(target=_cleanup, daemon=True).start()
 
 
-def generate_fnsku_pdf(fnsku: str, sku: str, msku_shipping: str) -> bytes:
+def generate_fnsku_pdf(fnsku: str, sku: str, msku_shipping: str, is_preview: bool = False) -> bytes:
+    """
+    生成FNSKU标签PDF
+    布局（从上到下）：条形码 -> FNSKU -> 分隔线 -> SKU -> MSKU_SHIPPING
+    整体位置：靠近标签底部
+    """
     W, H = 60 * mm, 90 * mm
+    if is_preview:
+        W, H = 60 * mm, 40 * mm
+
     buf = BytesIO()
     c = canvas.Canvas(buf, pagesize=(W, H))
+
+    # 生成条形码
     bc_io = BytesIO()
     barcode.get("code128", fnsku, writer=ImageWriter()).write(
         bc_io,
-        options={"module_width": 0.38, "module_height": 12.0,
-                 "font_size": 0, "quiet_zone": 2.0, "write_text": False}
+        options={"module_width": 0.35, "module_height": 15.0,
+                 "font_size": 0, "quiet_zone": 1.5, "write_text": False}
     )
     bc_io.seek(0)
     img = Image.open(bc_io)
@@ -182,20 +192,38 @@ def generate_fnsku_pdf(fnsku: str, sku: str, msku_shipping: str) -> bytes:
     cropped = BytesIO()
     img.save(cropped, format="PNG")
     cropped.seek(0)
-    mx = 2 * mm
-    bh = 18 * mm
-    by = H - 2 * mm - bh
-    c.drawImage(ImageReader(cropped), x=mx, y=by, width=W-2*mx, height=bh, preserveAspectRatio=False)
-    fy = by - 4.5 * mm
+
+    # 布局参数
+    mx = 2.5 * mm      # 左右边距
+    bh = 20 * mm       # 条形码高度（增加以提高清晰度）
+    bottom_margin = 3 * mm  # 底部边距
+
+    # 从底部向上布局
+    y = bottom_margin
+
+    # 1. MSKU_SHIPPING（最底部）
+    c.setFont("Helvetica", 7)
+    c.drawCentredString(W/2, y, msku_shipping)
+    y += 4 * mm
+
+    # 2. SKU
     c.setFont("Helvetica-Bold", 9)
-    c.drawCentredString(W/2, fy, fnsku)
-    ly = fy - 2 * mm
-    c.setLineWidth(0.6)
-    c.line(mx, ly, W-mx, ly)
-    c.setFont("Helvetica-Bold", 10)
-    c.drawCentredString(W/2, ly-5.5*mm, sku)
-    c.setFont("Helvetica", 8)
-    c.drawCentredString(W/2, ly-10.5*mm, msku_shipping)
+    c.drawCentredString(W/2, y, sku)
+    y += 5 * mm
+
+    # 3. 分隔线
+    c.setLineWidth(0.5)
+    c.line(mx, y, W - mx, y)
+    y += 4 * mm
+
+    # 4. FNSKU
+    c.setFont("Helvetica-Bold", 8)
+    c.drawCentredString(W/2, y, fnsku)
+    y += 4 * mm
+
+    # 5. 条形码（最顶部）
+    c.drawImage(ImageReader(cropped), x=mx, y=y, width=W - 2*mx, height=bh, preserveAspectRatio=False)
+
     c.save()
     return buf.getvalue()
 
@@ -305,7 +333,7 @@ def api_preview_fnsku():
     """FNSKU 预览 - 返回裁剪后的PDF base64"""
     data = request.get_json()
     try:
-        pdf = generate_fnsku_pdf(data["fnsku"], data["sku"], data["msku_shipping"])
+        pdf = generate_fnsku_pdf(data["fnsku"], data["sku"], data["msku_shipping"], True)
         return jsonify({"status": "ok", "pdf": base64.b64encode(pdf).decode("utf-8")})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
