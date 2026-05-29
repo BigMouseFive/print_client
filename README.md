@@ -9,7 +9,7 @@
 | 文件 | 运行位置 | 说明 |
 |------|----------|------|
 | `windows_print_agent.py` | Windows（接打印机的电脑） | 打印代理服务，含 Web 管理界面 |
-| `print_client.py` | Ubuntu（ERP 服务器） | ERP 调用打印的客户端封装 |
+| `erp_client.py` | Ubuntu（ERP 服务器） | ERP 调用打印的客户端封装 |
 
 ---
 
@@ -101,7 +101,7 @@ ipconfig
 
 **修改配置**
 
-打开 `print_client.py`，修改第13行：
+打开 `erp_client.py`，修改第13行：
 
 ```python
 PRINT_AGENT_URL = "http://192.168.1.100:5050"   # 改为实际 IP
@@ -110,7 +110,7 @@ PRINT_AGENT_URL = "http://192.168.1.100:5050"   # 改为实际 IP
 **复制到 ERP 项目目录**
 
 ```bash
-cp print_client.py /path/to/your/erp/project/
+cp erp_client.py /path/to/your/erp/project/
 ```
 
 **在 FastAPI 路由中集成**
@@ -288,6 +288,46 @@ python windows_print_agent.py
 ```
 
 按 `Win+R` 输入 `shell:startup`，将该 bat 文件放入打开的文件夹中即可。
+
+---
+
+## 开机自启（Linux systemd）
+
+项目已提供一键安装脚本，支持将服务注册为 systemd 并设置开机自启。
+
+**安装前提**
+- 系统使用 systemd（大多数现代 Linux 发行版默认支持）
+- 已安装 Python 3 及项目依赖：`pip install -r requirements.txt`
+
+**一键安装**
+
+```bash
+chmod +x install_service.sh
+./install_service.sh
+```
+
+脚本会自动：
+1. 检测项目目录及 Python 环境
+2. 生成 `print-client.service`
+3. 注册到 systemd 并设置开机自启
+4. 立即启动服务
+
+**常用管理命令**
+
+| 命令 | 说明 |
+|------|------|
+| `sudo systemctl status print-client` | 查看服务状态 |
+| `sudo systemctl restart print-client` | 重启服务 |
+| `sudo systemctl stop print-client` | 停止服务 |
+| `sudo journalctl -u print-client -f` | 实时查看日志 |
+
+**脚本其他用法**
+
+```bash
+./install_service.sh --status    # 查看服务状态
+./install_service.sh --logs      # 查看实时日志
+./install_service.sh --uninstall # 卸载服务
+```
 
 ---
 

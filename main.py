@@ -7,8 +7,14 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-from .config import PORT
-from .api.routes import router
+try:
+    from .config import PORT
+    from .api.routes import router
+except ImportError:
+    import sys, os
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from config import PORT
+    from api.routes import router
 
 app = FastAPI(title="佳博打印代理服务", version="2.0.0")
 app.include_router(router)
