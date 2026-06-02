@@ -57,7 +57,7 @@ def api_logs():
 def api_fnsku(data: FnskuPrintRequest):
     try:
         pdf = generate_fnsku_pdf(data.fnsku, data.sku, data.origin)
-        printer.print_pdf(pdf, FNSKU_PRINTER, data.copies)
+        printer.print_pdf(pdf, FNSKU_PRINTER, data.copies, media_size="60x40mm")
         _add_log("ok", f"FNSKU {data.fnsku} x {data.copies}")
         return {"status": "ok"}
     except Exception as e:
@@ -71,7 +71,7 @@ def api_fnsku_batch(items: list[FnskuBatchItem]):
     for item in items:
         try:
             pdf = generate_fnsku_pdf(item.fnsku, item.sku, item.origin)
-            printer.print_pdf(pdf, FNSKU_PRINTER, item.copies)
+            printer.print_pdf(pdf, FNSKU_PRINTER, item.copies, media_size="60x40mm")
             results.append({"fnsku": item.fnsku, "status": "ok"})
             ok_count += 1
         except Exception as e:
@@ -81,13 +81,13 @@ def api_fnsku_batch(items: list[FnskuBatchItem]):
 
 
 @router.post("/print/box")
-def api_box(request: Request, copies: int = 1):
+async def api_box(request: Request, copies: int = 1):
     try:
-        pdf_bytes = request.body()
+        pdf_bytes = await request.body()
         if not pdf_bytes:
             return JSONResponse(status_code=400, content={"status": "error", "message": "未收到 PDF 数据"})
         pdf_bytes = crop_pdf_to_size_if_needed(pdf_bytes, 100, 100)
-        printer.print_pdf(pdf_bytes, BOX_PRINTER, copies)
+        printer.print_pdf(pdf_bytes, BOX_PRINTER, copies, media_size="100x100mm")
         _add_log("ok", f"外箱标签 x {copies}")
         return {"status": "ok"}
     except Exception as e:
@@ -105,9 +105,9 @@ def api_preview_fnsku(data: FnskuPrintRequest):
 
 
 @router.post("/preview/box")
-def api_preview_box(request: Request):
+async def api_preview_box(request: Request):
     try:
-        pdf_bytes = request.body()
+        pdf_bytes = await request.body()
         if not pdf_bytes:
             return JSONResponse(status_code=400, content={"status": "error", "message": "未收到 PDF 数据"})
         pdf = crop_pdf_to_size_if_needed(pdf_bytes, 100, 100)

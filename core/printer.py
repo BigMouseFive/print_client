@@ -73,7 +73,7 @@ class WindowsPrinter(BasePrinter):
 class CupsPrinter(BasePrinter):
     """Linux CUPS 打印实现：通过 lp 命令"""
 
-    def print_pdf(self, pdf_bytes: bytes, printer_name: str, copies: int = 1) -> None:
+    def print_pdf(self, pdf_bytes: bytes, printer_name: str, copies: int = 1, media_size: str = None) -> None:
         tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
         tmp.write(pdf_bytes)
         tmp.close()
@@ -83,9 +83,12 @@ class CupsPrinter(BasePrinter):
                 "lp",
                 "-d", printer_name,
                 "-n", str(copies),
-                "-o", "fit-to-page",
-                tmp.name,
             ]
+            if media_size:
+                cmd.extend(["-o", f"media=Custom.{media_size}"])
+            else:
+                cmd.extend(["-o", "scaling=100"])
+            cmd.append(tmp.name)
             subprocess.run(cmd, check=True, timeout=30)
         finally:
             # 延迟清理
