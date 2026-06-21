@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 from ..config import FNSKU_PRINTER, BOX_PRINTER
 from ..core.printer import get_printer
 from ..core.pdf_generator import generate_fnsku_pdf
-from ..core.pdf_cropper import crop_pdf_to_size_if_needed
+from ..core.pdf_cropper import resize_pdf_to_size
 from .models import FnskuPrintRequest, FnskuBatchItem
 
 router = APIRouter()
@@ -56,7 +56,7 @@ def api_logs():
 @router.post("/print/fnsku")
 def api_fnsku(data: FnskuPrintRequest):
     try:
-        pdf = generate_fnsku_pdf(data.fnsku, data.sku, data.origin)
+        pdf = generate_fnsku_pdf(data.fnsku, data.sku, data.msku_shipping)
         printer.print_pdf(pdf, FNSKU_PRINTER, data.copies, media_size="60x40mm")
         _add_log("ok", f"FNSKU {data.fnsku} x {data.copies}")
         return {"status": "ok"}
@@ -70,7 +70,7 @@ def api_fnsku_batch(items: list[FnskuBatchItem]):
     results, ok_count = [], 0
     for item in items:
         try:
-            pdf = generate_fnsku_pdf(item.fnsku, item.sku, item.origin)
+            pdf = generate_fnsku_pdf(item.fnsku, item.sku, item.msku_shipping)
             printer.print_pdf(pdf, FNSKU_PRINTER, item.copies, media_size="60x40mm")
             results.append({"fnsku": item.fnsku, "status": "ok"})
             ok_count += 1
@@ -86,7 +86,7 @@ async def api_box(request: Request, copies: int = 1):
         pdf_bytes = await request.body()
         if not pdf_bytes:
             return JSONResponse(status_code=400, content={"status": "error", "message": "未收到 PDF 数据"})
-        pdf_bytes = crop_pdf_to_size_if_needed(pdf_bytes, 100, 100)
+        pdf_bytes = resize_pdf_to_size(pdf_bytes, 100, 100)
         printer.print_pdf(pdf_bytes, BOX_PRINTER, copies, media_size="100x100mm")
         _add_log("ok", f"外箱标签 x {copies}")
         return {"status": "ok"}
@@ -98,7 +98,7 @@ async def api_box(request: Request, copies: int = 1):
 @router.post("/preview/fnsku")
 def api_preview_fnsku(data: FnskuPrintRequest):
     try:
-        pdf = generate_fnsku_pdf(data.fnsku, data.sku, data.origin)
+        pdf = generate_fnsku_pdf(data.fnsku, data.sku, data.msku_shipping)
         return {"status": "ok", "pdf": base64.b64encode(pdf).decode("utf-8")}
     except Exception as e:
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
@@ -110,7 +110,7 @@ async def api_preview_box(request: Request):
         pdf_bytes = await request.body()
         if not pdf_bytes:
             return JSONResponse(status_code=400, content={"status": "error", "message": "未收到 PDF 数据"})
-        pdf = crop_pdf_to_size_if_needed(pdf_bytes, 100, 100)
+        pdf = resize_pdf_to_size(pdf_bytes, 100, 100)
         return {"status": "ok", "pdf": base64.b64encode(pdf).decode("utf-8")}
     except Exception as e:
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})

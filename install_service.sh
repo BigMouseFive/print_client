@@ -84,6 +84,15 @@ check_sudo() {
 }
 
 generate_service_content() {
+    # 收集可选环境变量
+    local extra_env=""
+    if [ -n "${FNSKU_PRINTER:-}" ]; then
+        extra_env="${extra_env}\nEnvironment=FNSKU_PRINTER=${FNSKU_PRINTER}"
+    fi
+    if [ -n "${BOX_PRINTER:-}" ]; then
+        extra_env="${extra_env}\nEnvironment=BOX_PRINTER=${BOX_PRINTER}"
+    fi
+
     cat <<EOF
 [Unit]
 Description=佳博打印代理服务 (FastAPI)
@@ -94,7 +103,7 @@ Type=simple
 User=${CURRENT_USER}
 WorkingDirectory=${PROJECT_DIR}
 Environment=PYTHONPATH=${PROJECT_PARENT}
-Environment=PRINT_AGENT_PORT=5050
+Environment=PRINT_AGENT_PORT=5050${extra_env}
 EOF
 
     if [ -n "$UVICORN_BIN" ]; then

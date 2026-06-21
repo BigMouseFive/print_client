@@ -6,14 +6,14 @@ from pydantic import BaseModel
 class FnskuPrintRequest(BaseModel):
     fnsku: str
     sku: str
-    origin: str = "made in china"
+    msku_shipping: str = "made in china"
     copies: int = 1
 
 
 class FnskuBatchItem(BaseModel):
     fnsku: str
     sku: str
-    origin: str = "made in china"
+    msku_shipping: str = "made in china"
     copies: int = 1
 
 

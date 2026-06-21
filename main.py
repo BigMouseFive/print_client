@@ -48,6 +48,12 @@ if __name__ == "__main__":
     print("=" * 52)
     print(f"  管理界面：http://localhost:{PORT}")
     print(f"  FNSKU 打印机：{os.environ.get('FNSKU_PRINTER', 'GP-1326D')}")
-    print(f"  平台：{'Windows' if sys.platform == 'win32' else 'Linux (CUPS)'}")
+    if sys.platform == "win32":
+        platform_label = "Windows"
+    elif sys.platform == "darwin":
+        platform_label = "macOS (CUPS)"
+    else:
+        platform_label = "Linux (CUPS)"
+    print(f"  平台：{platform_label}")
     print("=" * 52)
     uvicorn.run("main:app", host="0.0.0.0", port=PORT, reload=False)

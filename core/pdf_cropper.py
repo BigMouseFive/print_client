@@ -2,7 +2,7 @@
 
 from io import BytesIO
 
-from pypdf import PdfReader, PdfWriter
+from pypdf import PdfReader, PdfWriter, Transformation
 from reportlab.lib.units import mm
 
 
@@ -61,3 +61,48 @@ def crop_pdf_to_size_if_needed(pdf_bytes: bytes, width_mm: float = 100, height_m
         return pdf_bytes
 
     return crop_pdf_to_size(pdf_bytes, width_mm, height_mm)
+
+
+def resize_pdf_to_size(pdf_bytes: bytes, width_mm: float = 100, height_mm: float = 100, dpi: int = 300) -> bytes:
+    """
+    将 PDF 页面光栅化后重新生成为精确的目标尺寸。
+
+    与 crop_pdf_to_size 不同：
+    - 不依赖输入 PDF 是否有余白
+    - 把原页面当作图片渲染，再拉伸/铺满到目标尺寸
+    - 能避免复杂 PDF（表单、图层、异常坐标系）在缩放时内容丢失
+    - 适合亚马逊外箱标签等需要精确 100×100mm 的场景
+    """
+    import fitz  # PyMuPDF
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.utils import ImageReader
+
+    target_width = width_mm * mm
+    target_height = height_mm * mm
+
+    src = fitz.open(stream=pdf_bytes, filetype="pdf")
+    output = BytesIO()
+    c = canvas.Canvas(output, pagesize=(target_width, target_height))
+
+    for page in src:
+        # 按指定 DPI 渲染为图片
+        zoom = dpi / 72
+        mat = fitz.Matrix(zoom, zoom)
+        pix = page.get_pixmap(matrix=mat)
+        img_bytes = pix.tobytes("png")
+
+        # 铺满目标页面（拉伸填满，不保持宽高比）
+        img = ImageReader(BytesIO(img_bytes))
+        c.drawImage(
+            img,
+            x=0,
+            y=0,
+            width=target_width,
+            height=target_height,
+            preserveAspectRatio=False,
+        )
+        c.showPage()
+
+    c.save()
+    src.close()
+    return output.getvalue()

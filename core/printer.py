@@ -102,26 +102,23 @@ class CupsPrinter(BasePrinter):
             threading.Thread(target=_cleanup, daemon=True).start()
 
     def list_printers(self) -> list[str]:
+        import re
+
         try:
+            # lpstat -a 第一列就是打印机名，受系统语言影响小
             result = subprocess.run(
-                ["lpstat", "-p"],
+                ["lpstat", "-a"],
                 capture_output=True,
                 text=True,
                 timeout=10,
             )
             printers = []
             for line in result.stdout.splitlines():
-                # 兼容中英文: "printer XXX is idle." / "387862打印机 XXX 目前空闲。"
                 line = line.strip()
-                # 找到 "打印机" 或 "printer" 关键字，提取后面的名称
-                for keyword in ["printer ", "打印机 "]:
-                    idx = line.find(keyword)
-                    if idx != -1:
-                        rest = line[idx + len(keyword):].strip()
-                        name = rest.split()[0] if rest else ""
-                        if name:
-                            printers.append(name)
-                        break
+                # CUPS 打印机名通常只含 ASCII 字母、数字、下划线、连字符、点号
+                match = re.match(r"([A-Za-z0-9_.-]+)", line)
+                if match:
+                    printers.append(match.group(1))
             return printers
         except Exception:
             return []

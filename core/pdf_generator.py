@@ -10,10 +10,10 @@ from barcode.writer import ImageWriter
 from PIL import Image
 
 
-def generate_fnsku_pdf(fnsku: str, sku: str, origin: str, copies: int = 1) -> bytes:
+def generate_fnsku_pdf(fnsku: str, sku: str, msku_shipping: str, copies: int = 1) -> bytes:
     """
     生成 FNSKU 标签 PDF
-    布局（从上到下）：条形码 -> FNSKU -> 分隔线 -> SKU -> origin(made in china)
+    布局（从上到下）：条形码 -> FNSKU -> 分隔线 -> SKU -> msku_shipping
     整体位置：靠近标签底部
     """
     W, H = 60 * mm, 40 * mm
@@ -50,9 +50,9 @@ def generate_fnsku_pdf(fnsku: str, sku: str, origin: str, copies: int = 1) -> by
     # 从底部向上布局
     y = bottom_margin
 
-    # 1. origin（最底部）
+    # 1. msku_shipping（最底部）
     c.setFont("Helvetica", 7)
-    c.drawCentredString(W / 2, y, origin)
+    c.drawCentredString(W / 2, y, msku_shipping)
     y += 4 * mm
 
     # 2. SKU
