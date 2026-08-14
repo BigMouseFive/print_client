@@ -1,22 +1,58 @@
 """佳博打印代理服务 - FastAPI 跨平台版"""
 
+import logging
 import os
 import sys
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 try:
-    from .config import PORT
+    from . import config
     from .api.routes import router
+    from .registrar import ErpRegistrar
 except ImportError:
-    import sys, os
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    from config import PORT
+    import config
     from api.routes import router
+    from registrar import ErpRegistrar
 
-app = FastAPI(title="佳博打印代理服务", version="2.0.0")
+logger = logging.getLogger("print_client")
+
+PORT = config.PORT
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # 启动时向 ERP 自注册（ERP_URL 为空则不启用）
+    registrar = None
+    if config.ERP_URL:
+        registrar = ErpRegistrar(
+            erp_url=config.ERP_URL,
+            port=config.PORT,
+            token=config.ERP_TOKEN,
+            node_name=config.PRINT_AGENT_NAME,
+            interval=config.ERP_HEARTBEAT_INTERVAL,
+            advertise_url=config.PRINT_AGENT_ADVERTISE_URL,
+            prefer_prefixes=config.PRINT_AGENT_IP_PREFIXES,
+            meta={
+                "fnsku_printer": config.FNSKU_PRINTER,
+                "box_printer": config.BOX_PRINTER,
+                "platform": sys.platform,
+                "version": config.VERSION,
+            },
+        )
+        registrar.start()
+    else:
+        logger.info("未配置 ERP_URL，跳过 ERP 自注册")
+    yield
+    if registrar:
+        registrar.stop()
+
+
+app = FastAPI(title="佳博打印代理服务", version=config.VERSION, lifespan=lifespan)
 app.include_router(router)
 
 # 静态文件（Web 管理界面）
