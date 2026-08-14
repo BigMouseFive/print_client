@@ -1,6 +1,6 @@
 # 佳博打印代理服务
 
-亚马逊 FBA 卖家标签打印解决方案。ERP 运行在 Ubuntu，打印机接在 Windows，通过本地打印代理服务桥接两端，实现一键打印。
+亚马逊 FBA 卖家标签打印解决方案。ERP 运行在 Ubuntu / macOS / Windows，打印机接在本地，通过打印代理服务桥接两端，实现一键打印。
 
 ---
 
@@ -8,24 +8,50 @@
 
 | 文件 | 运行位置 | 说明 |
 |------|----------|------|
-| `windows_print_agent.py` | Windows（接打印机的电脑） | 打印代理服务，含 Web 管理界面 |
-| `print_client.py` | Ubuntu（ERP 服务器） | ERP 调用打印的客户端封装 |
+| `run.py` / `main.py` | Linux / macOS / Windows | 跨平台 FastAPI 打印代理服务 |
+| `windows_print_agent.py` | Windows（接打印机的电脑） | 传统 Flask 打印代理服务 |
+| `install_service.sh` | Linux | systemd 服务安装脚本 |
+| `install_service_macos.sh` | macOS | LaunchAgent 服务安装脚本 |
+| `erp_client.py` | Ubuntu（ERP 服务器） | ERP 调用打印的客户端封装 |
 
 ---
 
 ## 系统架构
 
 ```
-Ubuntu ERP (FastAPI)
+Ubuntu / macOS / Windows ERP (FastAPI)
        │
        │  HTTP POST（局域网）
        ▼
-Windows 打印代理服务 :5050
+打印代理服务 :5050
        │
        │  USB
        ▼
   佳博打印机
 ```
+
+---
+
+## ERP 自注册（推荐）
+
+打印代理启动后可自动向 ERP 心跳注册，ERP 端无需再手动维护打印服务地址（本机 IP 变化会自动生效）。
+
+通过环境变量启用（留空 `ERP_URL` 则不注册，ERP 端仍可使用手动配置的服务地址作为回退）：
+
+| 环境变量 | 必填 | 说明 |
+|----------|------|------|
+| `ERP_URL` | 是 | ERP 服务地址，如 `http://192.168.1.10:8888` |
+| `ERP_TOKEN` | 否 | 共享密钥，对应 ERP 配置项 `PRINT_AGENT_TOKEN`，ERP 侧配置了才需要 |
+| `PRINT_AGENT_NAME` | 否 | 节点显示名，默认取主机名 |
+| `PRINT_AGENT_ADVERTISE_URL` | 否 | 手动指定上报给 ERP 的服务地址；默认自动探测局域网 IP（探测逻辑：先向 ERP 地址做路由探测选出能到达 ERP 的网卡 IP，再排除 VPN 虚拟段 198.18/15、100.64/10 等，最后枚举本机私网地址兜底） |
+| `PRINT_AGENT_IP_PREFIXES` | 否 | 上报 IP 白名单前缀，逗号分隔，如 `192.168.,10.200.200.`；多网卡或 VPN 环境下锁定正确网段 |
+| `ERP_HEARTBEAT_INTERVAL` | 否 | 心跳间隔秒数，默认 30 |
+
+```bash
+ERP_URL=http://192.168.1.10:8888 python run.py
+```
+
+注册成功后可在 ERP「系统设置 → 打印机配置」中看到在线节点；代理停止约 90 秒后自动判定离线，无需手动注销。
 
 ---
 
@@ -36,11 +62,14 @@ Windows 打印代理服务 :5050
 - 包含字段：FNSKU 编号 / SKU / MSKU + 运输方式
 
 **外箱标签（100×100mm）**
-- 直接打印亚马逊 Seller Central 下载的 PDF，不做任何修改
+- 接收亚马逊 Seller Central 下载的 PDF，统一缩放/规范化为精确的 100×100mm 后打印
+- 对非标准尺寸（如 101.6×104.1 mm）的 PDF 也能正确输出
 
 ---
 
 ## 快速开始
+
+> 提示：项目同时提供跨平台 FastAPI 版本（`main.py` / `run.py`），可在 Linux 和 macOS 上直接运行；Windows 用户可继续使用传统的 `windows_print_agent.py`。
 
 ### 第一步：Windows 端部署
 
@@ -101,7 +130,7 @@ ipconfig
 
 **修改配置**
 
-打开 `print_client.py`，修改第13行：
+打开 `erp_client.py`，修改第13行：
 
 ```python
 PRINT_AGENT_URL = "http://192.168.1.100:5050"   # 改为实际 IP
@@ -110,7 +139,7 @@ PRINT_AGENT_URL = "http://192.168.1.100:5050"   # 改为实际 IP
 **复制到 ERP 项目目录**
 
 ```bash
-cp print_client.py /path/to/your/erp/project/
+cp erp_client.py /path/to/your/erp/project/
 ```
 
 **在 FastAPI 路由中集成**
@@ -288,6 +317,106 @@ python windows_print_agent.py
 ```
 
 按 `Win+R` 输入 `shell:startup`，将该 bat 文件放入打开的文件夹中即可。
+
+---
+
+## 开机自启（Linux systemd）
+
+项目已提供一键安装脚本，支持将服务注册为 systemd 并设置开机自启。
+
+**安装前提**
+- 系统使用 systemd（大多数现代 Linux 发行版默认支持）
+- 已安装 Python 3 及项目依赖：`pip install -r requirements.txt`
+
+**一键安装**
+
+```bash
+chmod +x install_service.sh
+
+# 如需指定打印机名（默认 GP-1326D）
+export FNSKU_PRINTER=GP-1326D
+export BOX_PRINTER=GP-1326D
+./install_service.sh
+```
+
+脚本会自动：
+1. 检测项目目录及 Python 环境
+2. 生成 `print-client.service`
+3. 注册到 systemd 并设置开机自启
+4. 立即启动服务
+
+**常用管理命令**
+
+| 命令 | 说明 |
+|------|------|
+| `sudo systemctl status print-client` | 查看服务状态 |
+| `sudo systemctl restart print-client` | 重启服务 |
+| `sudo systemctl stop print-client` | 停止服务 |
+| `sudo journalctl -u print-client -f` | 实时查看日志 |
+
+**脚本其他用法**
+
+```bash
+./install_service.sh --status    # 查看服务状态
+./install_service.sh --logs      # 查看实时日志
+./install_service.sh --uninstall # 卸载服务
+```
+
+---
+
+## 开机自启（macOS LaunchAgent）
+
+项目提供 `install_service_macos.sh`，用于将服务注册为 macOS LaunchAgent 并设置开机自启。
+
+**安装前提**
+- macOS 10.10 或更高版本
+- 已安装 Python 3 及项目依赖：`pip install -r requirements.txt`
+- 已安装佳博 GP-1326D 官方 macOS 驱动，并在「系统设置 → 打印机与扫描仪」中添加打印机
+
+**查看 CUPS 中的打印机名**
+
+macOS 添加打印机后可能自动生成类似 `Gprinter_GP_1326D` 的名称，请在终端确认：
+
+```bash
+lpstat -p
+```
+
+**手动启动**
+
+```bash
+# 如果打印机名不是默认的 GP-1326D，请通过环境变量指定
+FNSKU_PRINTER=Gprinter_GP_1326D BOX_PRINTER=Gprinter_GP_1326D python run.py
+```
+
+**一键安装（开机自启）**
+
+```bash
+chmod +x install_service_macos.sh
+
+# 安装时传入打印机名，会写入 plist
+export FNSKU_PRINTER=Gprinter_GP_1326D
+export BOX_PRINTER=Gprinter_GP_1326D
+./install_service_macos.sh
+```
+
+脚本会自动：
+1. 检测项目目录及 Python 环境
+2. 生成 `~/Library/LaunchAgents/com.print-client.plist`
+3. 注册到 `launchctl` 并立即启动服务
+
+**常用管理命令**
+
+| 命令 | 说明 |
+|------|------|
+| `./install_service_macos.sh --status` | 查看服务状态 |
+| `./install_service_macos.sh --logs` | 实时查看日志 |
+| `./install_service_macos.sh --uninstall` | 卸载服务 |
+
+**注意**
+
+- macOS 官方驱动中可能没有 `GP-1326D` 专用 PPD，可选择最接近的 `Gprinter GP-1324D TSPL` 作为驱动。
+- FNSKU 标签（60×40mm）使用该 PPD 预定义尺寸；外箱标签（100×100mm）通过 CUPS `Custom.100x100mm` 自定义尺寸输出。
+- 如需修改端口，可设置环境变量 `PRINT_AGENT_PORT`。
 
 ---
 

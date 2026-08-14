@@ -1,0 +1,19 @@
+[Unit]
+Description=佳博打印代理服务 (FastAPI)
+After=network.target
+
+[Service]
+Type=simple
+User=dylan
+WorkingDirectory=/home/dylan/project/print_client
+Environment=PYTHONPATH=/home/dylan/project
+Environment=PRINT_AGENT_PORT=5050
+ExecStart=/home/dylan/project/print_client/.venv/bin/uvicorn print_client.main:app --host 0.0.0.0 --port 5050
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=print-client
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,8 @@
+fastapi==0.136.3
+uvicorn[standard]==0.48.0
+reportlab==4.5.1
+python-barcode[images]==0.16.1
+Pillow==12.2.0
+pypdf==6.12.1
+pymupdf==1.27.2
+pydantic==2.13.4
