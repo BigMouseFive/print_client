@@ -3,6 +3,14 @@
 import os
 import sys
 
+
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 PORT = int(os.environ.get("PRINT_AGENT_PORT", "5050"))
 
 # 打印机名称（CUPS 或 Windows）
@@ -17,6 +25,18 @@ PRINT_AGENT_ADVERTISE_URL = os.environ.get("PRINT_AGENT_ADVERTISE_URL", "")  # �
 # 上报 IP 白名单前缀，逗号分隔（如 "192.168.,10.200.200."），多网卡/有 VPN 时用来锁定正确网段
 PRINT_AGENT_IP_PREFIXES = [p.strip() for p in os.environ.get("PRINT_AGENT_IP_PREFIXES", "").split(",") if p.strip()]
 ERP_HEARTBEAT_INTERVAL = int(os.environ.get("ERP_HEARTBEAT_INTERVAL", "30"))
+
+# LAN discovery via IPv4 mDNS/DNS-SD. macOS enables it by default because the
+# M5 local print-client deployment does not need an ERP URL or heartbeat.
+MDNS_ENABLED = _env_bool("PRINT_AGENT_MDNS_ENABLED", sys.platform == "darwin")
+MDNS_INSTANCE_NAME = os.environ.get("PRINT_AGENT_MDNS_INSTANCE_NAME", PRINT_AGENT_NAME)
+MDNS_ADVERTISE_ADDRESS = os.environ.get("PRINT_AGENT_MDNS_ADVERTISE_ADDRESS", "")
+MDNS_IDENTITY_PATH = os.path.expanduser(
+    os.environ.get("PRINT_AGENT_MDNS_IDENTITY_PATH", "~/.print-client/service-identity.json")
+)
+# Keep the legacy ERP registrar opt-in when mDNS is enabled. Set this to true
+# explicitly when a deployment wants both discovery mechanisms.
+ERP_REGISTRATION_ENABLED = _env_bool("PRINT_AGENT_ERP_ENABLED", not MDNS_ENABLED)
 
 VERSION = "2.1.0"
 

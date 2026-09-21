@@ -6,3 +6,4 @@ Pillow==12.2.0
 pypdf==6.12.1
 pymupdf==1.27.2
 pydantic==2.13.4
+zeroconf>=0.131

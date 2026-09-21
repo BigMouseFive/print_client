@@ -4,6 +4,7 @@ import logging
 import os
 import sys
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -12,11 +13,13 @@ from fastapi.responses import FileResponse
 try:
     from . import config
     from .api.routes import router
+    from .mdns import MdnsPublisher, load_or_create_service_id, start_publisher_async, stop_publisher_async
     from .registrar import ErpRegistrar
 except ImportError:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import config
     from api.routes import router
+    from mdns import MdnsPublisher, load_or_create_service_id, start_publisher_async, stop_publisher_async
     from registrar import ErpRegistrar
 
 logger = logging.getLogger("print_client")
@@ -26,9 +29,29 @@ PORT = config.PORT
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 启动时向 ERP 自注册（ERP_URL 为空则不启用）
+    publisher = None
     registrar = None
-    if config.ERP_URL:
+
+    if config.MDNS_ENABLED:
+        service_id = load_or_create_service_id(Path(config.MDNS_IDENTITY_PATH))
+        publisher = MdnsPublisher(
+            service_id=service_id,
+            port=config.PORT,
+            instance_name=config.MDNS_INSTANCE_NAME,
+            advertise_address=config.MDNS_ADVERTISE_ADDRESS,
+        )
+        # zeroconf registration is synchronous and may wait on the network;
+        # never run it directly on the ASGI event loop.
+        await start_publisher_async(publisher)
+        app.state.service_id = service_id
+        logger.info("mDNS print-agent discovery enabled")
+    else:
+        app.state.service_id = None
+        logger.info("mDNS discovery disabled")
+
+    # Legacy ERP heartbeat remains available as an explicit opt-in. In mDNS
+    # mode it is disabled by default, so ERP_URL is not required.
+    if config.ERP_URL and config.ERP_REGISTRATION_ENABLED:
         registrar = ErpRegistrar(
             erp_url=config.ERP_URL,
             port=config.PORT,
@@ -46,10 +69,14 @@ async def lifespan(app: FastAPI):
         )
         registrar.start()
     else:
-        logger.info("未配置 ERP_URL，跳过 ERP 自注册")
-    yield
-    if registrar:
-        registrar.stop()
+        logger.info("未启用 ERP 自注册")
+    try:
+        yield
+    finally:
+        if registrar:
+            registrar.stop()
+        if publisher:
+            await stop_publisher_async(publisher)
 
 
 app = FastAPI(title="佳博打印代理服务", version=config.VERSION, lifespan=lifespan)

@@ -2,7 +2,6 @@
 
 import base64
 from datetime import datetime
-from io import BytesIO
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
@@ -33,6 +32,31 @@ def _add_log(level: str, message: str) -> None:
 @router.get("/ping")
 def ping():
     return {"status": "ok", "printer": FNSKU_PRINTER}
+
+
+@router.get("/.well-known/amazon-service")
+def service_metadata(request: Request):
+    """Stable service contract consumed by the LAN discovery agent."""
+    return {
+        "service_type": "print-agent",
+        "service_id": getattr(request.app.state, "service_id", None),
+        "api_version": 1,
+        "endpoints": {
+            "fnsku": "/print/fnsku",
+            "fnsku_batch": "/print/fnsku/batch",
+            "box": "/print/box",
+            "readiness": "/v1/readiness",
+        },
+        "metadata_path": "/.well-known/amazon-service",
+        "readiness_path": "/v1/readiness",
+    }
+
+
+@router.get("/v1/readiness")
+def readiness():
+    """Ready only when every configured print destination has a CUPS queue."""
+    result = printer.readiness([FNSKU_PRINTER, BOX_PRINTER])
+    return result
 
 
 @router.get("/printers")

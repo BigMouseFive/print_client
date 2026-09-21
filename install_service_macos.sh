@@ -59,7 +59,9 @@ check_python() {
 }
 
 generate_plist_content() {
-    # 如果安装时设置了 FNSKU_PRINTER / BOX_PRINTER，则写入 plist
+    # 如果安装时设置了 FNSKU_PRINTER / BOX_PRINTER，则写入 plist。
+    # M5 macOS deployment uses mDNS by default and stores identity outside the
+    # project directory so replacing the checkout does not create a new node.
     local extra_env=""
     if [ -n "${FNSKU_PRINTER:-}" ]; then
         extra_env="${extra_env}
@@ -91,7 +93,11 @@ generate_plist_content() {
         <key>PYTHONPATH</key>
         <string>$(dirname "$PROJECT_DIR")</string>
         <key>PRINT_AGENT_PORT</key>
-        <string>5050</string>${extra_env}
+        <string>5050</string>
+        <key>PRINT_AGENT_MDNS_ENABLED</key>
+        <string>true</string>
+        <key>PRINT_AGENT_MDNS_IDENTITY_PATH</key>
+        <string>${HOME}/.print-client/service-identity.json</string>${extra_env}
     </dict>
     <key>RunAtLoad</key>
     <true/>
@@ -119,8 +125,8 @@ do_install() {
 
     # 检查依赖
     echo "检查依赖..."
-    if ! $PYTHON_BIN -c "import fastapi, uvicorn" 2>/dev/null; then
-        echo -e "${YELLOW}警告：未检测到 fastapi 或 uvicorn，服务可能无法启动。${NC}"
+    if ! $PYTHON_BIN -c "import fastapi, uvicorn, zeroconf" 2>/dev/null; then
+        echo -e "${YELLOW}警告：未检测到 fastapi、uvicorn 或 zeroconf，服务可能无法启动或无法发布 mDNS。${NC}"
         echo "建议先执行: ${PYTHON_BIN} -m pip install -r ${PROJECT_DIR}/requirements.txt"
         read -p "是否继续安装? [y/N] " -n 1 -r
         echo
@@ -135,6 +141,7 @@ do_install() {
     # 确保目录存在
     mkdir -p "${PLIST_DIR}"
     mkdir -p "${LOG_DIR}"
+    mkdir -p "${HOME}/.print-client"
 
     # 生成 plist 文件
     echo ""

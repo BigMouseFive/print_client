@@ -32,11 +32,43 @@ Ubuntu / macOS / Windows ERP (FastAPI)
 
 ---
 
-## ERP 自注册（推荐）
+## M5 macOS：mDNS / DNS-SD 自动发现（默认）
 
-打印代理启动后可自动向 ERP 心跳注册，ERP 端无需再手动维护打印服务地址（本机 IP 变化会自动生效）。
+在 macOS（包括 M5 Mac）上，FastAPI 版打印代理默认通过 IPv4 mDNS / DNS-SD 发布：
 
-通过环境变量启用（留空 `ERP_URL` 则不注册，ERP 端仍可使用手动配置的服务地址作为回退）：
+```text
+_amz-print-agent._tcp.local.
+```
+
+此模式不需要 `ERP_URL`、心跳或回调地址。`zeroconf` 只公告服务 HTTP 地址及无敏感 TXT 元数据；发现端应读取 metadata，再探测 readiness。
+
+| TXT 键 | 值 |
+|---|---|
+| `service_type` | `print-agent` |
+| `service_id` | 持久 UUID（DHCP/IP 变化后不变） |
+| `api_version` | `1` |
+| `metadata_path` | `/.well-known/amazon-service` |
+| `readiness_path` | `/v1/readiness` |
+
+默认身份文件为 `~/.print-client/service-identity.json`，可用 `PRINT_AGENT_MDNS_IDENTITY_PATH` 改写。多网卡主机可设置 `PRINT_AGENT_MDNS_ADVERTISE_ADDRESS=192.168.x.x` 指定被公告的 LAN IPv4；不设置时自动选择私有 IPv4。实例显示名可通过 `PRINT_AGENT_MDNS_INSTANCE_NAME` 设置。
+
+| 环境变量 | 默认值 | 说明 |
+|---|---|---|
+| `PRINT_AGENT_MDNS_ENABLED` | macOS 为 `true`，其他平台为 `false` | 启用 IPv4 DNS-SD 发布 |
+| `PRINT_AGENT_MDNS_INSTANCE_NAME` | `PRINT_AGENT_NAME` 或主机名 | DNS-SD 实例名称 |
+| `PRINT_AGENT_MDNS_ADVERTISE_ADDRESS` | 空 | 指定 LAN IPv4，适用于多网卡 |
+| `PRINT_AGENT_MDNS_IDENTITY_PATH` | `~/.print-client/service-identity.json` | 稳定 `service_id` 的 JSON 文件 |
+| `PRINT_AGENT_ERP_ENABLED` | mDNS 启用时为 `false` | 显式同时启用旧 ERP 心跳 |
+
+mDNS 不代表端口已暴露给不可信网络；请仅在可信 LAN/VLAN 上运行，并用主机防火墙限制 `5050` 端口。
+
+---
+
+## 旧 ERP 心跳自注册（可选）
+
+兼容旧部署：打印代理仍可向 ERP 心跳注册。mDNS 启用时该机制默认关闭；如需两个机制并用，请同时配置 `ERP_URL` 和 `PRINT_AGENT_ERP_ENABLED=true`。
+
+通过环境变量启用（留空 `ERP_URL` 则不注册）：
 
 | 环境变量 | 必填 | 说明 |
 |----------|------|------|
@@ -225,10 +257,10 @@ X002GHIJKL,GS5678,FBA-*DXB5  AIR,3
 
 ## API 接口文档
 
-所有接口由 `windows_print_agent.py` 提供，供 ERP 直接调用。
+以下接口由跨平台 FastAPI 代理（`main.py` / `run.py`）提供，供局域网调用方直接调用。
 
 ### GET /ping
-检查服务状态。
+兼容旧调用方的进程存活检查。它只表示 HTTP 服务可响应，不检查 CUPS 队列。
 
 ```bash
 curl http://192.168.1.100:5050/ping
@@ -238,6 +270,26 @@ curl http://192.168.1.100:5050/ping
 ```json
 {"status": "ok", "printer": "Gprinter GP-1326D", "sumatra": true}
 ```
+
+---
+
+### GET /.well-known/amazon-service
+返回 mDNS discovery contract、稳定 `service_id` 和 API 端点路径。
+
+### GET /v1/readiness
+返回 CUPS 配置队列的接单状态。实现通过有 5 秒超时的 `lpstat -a` 查询，且 **所有配置的去重队列** 都存在/接受请求时才返回：
+
+```json
+{
+  "ready": true,
+  "accepting_tasks": true,
+  "configured_queues": ["Gprinter_GP_1326D"],
+  "available_queues": ["Gprinter_GP_1326D"],
+  "missing_queues": []
+}
+```
+
+`/ping` 保持兼容且不替代 readiness。
 
 ---
 
@@ -256,7 +308,8 @@ curl -X POST http://192.168.1.100:5050/print/fnsku \
 |------|------|------|------|
 | `fnsku` | string | 是 | FNSKU 编号 |
 | `sku` | string | 是 | SKU 编号 |
-| `msku_shipping` | string | 是 | MSKU + 运输方式 |
+| `msku_shipping` | string | 是 | MSKU + 运输方式（规范字段） |
+| `origin` | string | 否 | `msku_shipping` 的向后兼容别名；两者同时出现时使用 `msku_shipping` |
 | `copies` | int | 否 | 打印份数，默认 1 |
 
 ---
@@ -417,6 +470,15 @@ export BOX_PRINTER=Gprinter_GP_1326D
 - macOS 官方驱动中可能没有 `GP-1326D` 专用 PPD，可选择最接近的 `Gprinter GP-1324D TSPL` 作为驱动。
 - FNSKU 标签（60×40mm）使用该 PPD 预定义尺寸；外箱标签（100×100mm）通过 CUPS `Custom.100x100mm` 自定义尺寸输出。
 - 如需修改端口，可设置环境变量 `PRINT_AGENT_PORT`。
+- LaunchAgent 会启用 `PRINT_AGENT_MDNS_ENABLED=true`，并将稳定身份保存到 `~/.print-client/service-identity.json`；无需设置 `ERP_URL`。
+
+---
+
+## 打印交付语义
+
+打印 API 返回 `{"status":"ok"}` 的含义是代理已成功将作业提交给本机 CUPS（或 Windows 打印系统）。这**不保证**标签已完成物理打印：打印机可能脱机、缺纸、卡纸或在稍后失败。
+
+代理不会创建打印请求去重、自动重试或“恰好一次”语义。调用方若因超时重试同一个请求，可能产生重复实体标签；应由调用方基于业务流程确认 CUPS/打印机状态后再决定是否重试。
 
 ---
 
